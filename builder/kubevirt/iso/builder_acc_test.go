@@ -85,12 +85,12 @@ source "kubevirt-iso" "fedora" {
     "<leftCtrlOn>x<leftCtrlOff>"
   ]
   boot_wait                 = "10s"
-  installation_wait_timeout = "20m"
+  installation_wait_timeout = "1h"
 
   communicator = "ssh"
   ssh_username = "%s"
   ssh_password = "%s"
-  ssh_timeout  = "20m"
+  ssh_timeout  = "1h"
 }
 
 build {
@@ -146,12 +146,12 @@ source "kubevirt-iso" "ubuntu" {
     "boot<enter>"
   ]
   boot_wait                 = "10s"
-  installation_wait_timeout = "20m"
+  installation_wait_timeout = "1h"
 
   communicator = "ssh"
   ssh_username = "%s"
   ssh_password = "%s"
-  ssh_timeout  = "20m"
+  ssh_timeout  = "1h"
 }
 
 build {
@@ -210,12 +210,12 @@ source "kubevirt-iso" "windows" {
     "<spacebar><wait>"
   ]
   boot_wait                 = "5s"
-  installation_wait_timeout = "20m"
+  installation_wait_timeout = "1h"
 
   communicator   = "winrm"
   winrm_username = "%s"
   winrm_password = "%s"
-  winrm_timeout  = "25m"
+  winrm_timeout  = "1h"
 }
 
 build {

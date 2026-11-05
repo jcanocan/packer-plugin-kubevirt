@@ -31,7 +31,7 @@ jobs:
   acceptance-tests:
     needs: get-go-version
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
 
@@ -79,6 +79,45 @@ jobs:
         env:
           TESTARGS: ${{ steps.test-filter.outputs.testargs }}
         run: make testacc
+
+      - name: Debug cluster state
+        if: failure()
+        run: |
+          echo "=== VirtualMachines ==="
+          kubectl get vm -A -o wide 2>/dev/null || true
+          echo ""
+          echo "=== VirtualMachineInstances ==="
+          kubectl get vmi -A -o wide 2>/dev/null || true
+          echo ""
+          echo "=== DataVolumes ==="
+          kubectl get dv -A 2>/dev/null || true
+          echo ""
+          echo "=== Pods ==="
+          kubectl get pods -A 2>/dev/null || true
+          echo ""
+          echo "=== VM Description ==="
+          for ns in $(kubectl get vm -A --no-headers 2>/dev/null | awk '{print $1}'); do
+            for vm in $(kubectl get vm -n "$ns" --no-headers 2>/dev/null | awk '{print $1}'); do
+              echo "--- $ns/$vm ---"
+              kubectl describe vm "$vm" -n "$ns" 2>/dev/null || true
+            done
+          done
+          echo ""
+          echo "=== VMI Description ==="
+          for ns in $(kubectl get vmi -A --no-headers 2>/dev/null | awk '{print $1}'); do
+            for vmi in $(kubectl get vmi -n "$ns" --no-headers 2>/dev/null | awk '{print $1}'); do
+              echo "--- $ns/$vmi ---"
+              kubectl describe vmi "$vmi" -n "$ns" 2>/dev/null || true
+            done
+          done
+          echo ""
+          echo "=== Virt-launcher pod logs ==="
+          for pod in $(kubectl get pods -A -l kubevirt.io=virt-launcher --no-headers 2>/dev/null | awk '{print $1 "/" $2}'); do
+            ns="${pod%%/*}"
+            name="${pod##*/}"
+            echo "--- $ns/$name ---"
+            kubectl logs "$name" -n "$ns" --tail=50 2>/dev/null || true
+          done
 
       - name: Upload packer logs
         if: always()

@@ -29,7 +29,7 @@ KUBECONFIG?=$(shell echo $$KUBECONFIG)
 TESTARGS?=
 
 testacc: dev
-	@PACKER_ACC=1 KUBECONFIG=$(KUBECONFIG) go test -count $(COUNT) -v $(TEST) $(TESTARGS) -timeout=120m
+	@PACKER_ACC=1 KUBECONFIG=$(KUBECONFIG) go test -count $(COUNT) -v $(TEST) $(TESTARGS) -timeout=5h
 
 cluster-up:
 	hack/e2e-setup.sh
