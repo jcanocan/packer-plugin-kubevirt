@@ -1,0 +1,137 @@
+name: Acceptance Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      test_run:
+        description: 'Go test -run filter (e.g. TestAccISOBuilder_Fedora). Empty runs all.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  get-go-version:
+    runs-on: ubuntu-latest
+    outputs:
+      go-version: ${{ steps.get-go-version.outputs.go-version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Determine Go version
+        id: get-go-version
+        run: |
+          echo "Found Go $(cat .go-version)"
+          echo "go-version=$(cat .go-version)" >> "$GITHUB_OUTPUT"
+
+  acceptance-tests:
+    needs: get-go-version
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ needs.get-go-version.outputs.go-version }}
+
+      - name: Set up Packer
+        uses: hashicorp/setup-packer@main
+
+      - name: Install kind / kubectl
+        uses: helm/kind-action@v1.15.0
+        with:
+          version: v0.33.0
+          install_only: true
+
+      - name: Deploy KubeVirt cluster
+        run: |
+          hack/e2e-setup.sh \
+            -v \
+            --configure-inotify-limits \
+            --create-cluster \
+            --deploy-kubevirt \
+            --deploy-kubevirt-cdi
+          echo "KUBECONFIG=$HOME/.kube/config" >> "$GITHUB_ENV"
+        env:
+          KIND: kind
+          KUBECTL: kubectl
+
+      - name: Determine test filter
+        id: test-filter
+        run: |
+          if [ -n "$INPUT_TEST_RUN" ]; then
+            echo "testargs=-run $INPUT_TEST_RUN" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_EVENT_NAME" != "workflow_dispatch" ]; then
+            echo "testargs=-run TestAccISOBuilder_Fedora" >> "$GITHUB_OUTPUT"
+          else
+            echo "testargs=" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          INPUT_TEST_RUN: ${{ github.event.inputs.test_run }}
+
+      - name: Run acceptance tests
+        env:
+          TESTARGS: ${{ steps.test-filter.outputs.testargs }}
+        run: make testacc
+
+      - name: Debug cluster state
+        if: failure()
+        run: |
+          echo "=== VirtualMachines ==="
+          kubectl get vm -A -o wide 2>/dev/null || true
+          echo ""
+          echo "=== VirtualMachineInstances ==="
+          kubectl get vmi -A -o wide 2>/dev/null || true
+          echo ""
+          echo "=== DataVolumes ==="
+          kubectl get dv -A 2>/dev/null || true
+          echo ""
+          echo "=== Pods ==="
+          kubectl get pods -A 2>/dev/null || true
+          echo ""
+          echo "=== VM Description ==="
+          for ns in $(kubectl get vm -A --no-headers 2>/dev/null | awk '{print $1}'); do
+            for vm in $(kubectl get vm -n "$ns" --no-headers 2>/dev/null | awk '{print $1}'); do
+              echo "--- $ns/$vm ---"
+              kubectl describe vm "$vm" -n "$ns" 2>/dev/null || true
+            done
+          done
+          echo ""
+          echo "=== VMI Description ==="
+          for ns in $(kubectl get vmi -A --no-headers 2>/dev/null | awk '{print $1}'); do
+            for vmi in $(kubectl get vmi -n "$ns" --no-headers 2>/dev/null | awk '{print $1}'); do
+              echo "--- $ns/$vmi ---"
+              kubectl describe vmi "$vmi" -n "$ns" 2>/dev/null || true
+            done
+          done
+          echo ""
+          echo "=== Virt-launcher pod logs ==="
+          for pod in $(kubectl get pods -A -l kubevirt.io=virt-launcher --no-headers 2>/dev/null | awk '{print $1 "/" $2}'); do
+            ns="${pod%%/*}"
+            name="${pod##*/}"
+            echo "--- $ns/$name ---"
+            kubectl logs "$name" -n "$ns" --tail=50 2>/dev/null || true
+          done
+
+      - name: Upload packer logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packer-logs
+          path: |
+            **/packer_log_*.txt
+            **/*.pkr.hcl
+          if-no-files-found: ignore
+
+      - name: Cleanup cluster
+        if: always()
+        run: hack/e2e-setup.sh --cleanup
+        env:
+          KIND: kind
+          KUBECTL: kubectl

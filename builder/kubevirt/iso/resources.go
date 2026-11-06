@@ -70,8 +70,25 @@ func virtualMachine(
 	var disks []v1.Disk
 	var volumes []v1.Volume
 
-	vmNetworks := make([]v1.Network, len(networks))
-	vmInterfaces := make([]v1.Interface, len(networks))
+	var vmNetworks []v1.Network
+	var vmInterfaces []v1.Interface
+
+	if len(networks) == 0 {
+		vmNetworks = []v1.Network{{
+			Name:          "default",
+			NetworkSource: v1.NetworkSource{Pod: &v1.PodNetwork{}},
+		}}
+		vmInterfaces = []v1.Interface{{
+			Name:                   "default",
+			InterfaceBindingMethod: v1.InterfaceBindingMethod{Masquerade: &v1.InterfaceMasquerade{}},
+		}}
+	} else {
+		vmNetworks = make([]v1.Network, len(networks))
+		vmInterfaces = make([]v1.Interface, len(networks))
+		for i, n := range networks {
+			vmNetworks[i], vmInterfaces[i] = convertToNetwork(n)
+		}
+	}
 
 	if instanceTypeKind == "" {
 		instanceTypeKind = instancetypeapi.ClusterSingularResourceName
@@ -89,10 +106,6 @@ func virtualMachine(
 	if osType == "windows" {
 		disks = getWindowsVirtualMachineDisks()
 		volumes = getWindowsVirtualMachineVolumes(name, isoVolumeName, virtioContainerImage)
-	}
-
-	for i, n := range networks {
-		vmNetworks[i], vmInterfaces[i] = convertToNetwork(n)
 	}
 
 	return &v1.VirtualMachine{
