@@ -83,19 +83,13 @@ source "kubevirt-iso" "fedora" {
     EOF
   }
 
-  boot_command = [
-    "<up>e",
-    "<down><down><end>",
-    " inst.ks=hd:LABEL=OEMDRV:/ks.cfg",
-    "<leftCtrlOn>x<leftCtrlOff>"
-  ]
-  boot_wait                 = "10s"
+  # No boot_command: Anaconda auto-detects ks.cfg on the OEMDRV-labeled
   installation_wait_timeout = "20m"
 
   communicator = "ssh"
   ssh_username = "%s"
   ssh_password = "%s"
-  ssh_timeout  = "20m"
+  ssh_timeout  = "1h"
 }
 
 build {
@@ -149,19 +143,25 @@ source "kubevirt-iso" "ubuntu" {
   }
   media_label = "cidata"
 
+  # subiquity loads the autoinstall config from the cidata seed but, without
+  # the "autoinstall" kernel arg, waits at a "Continue with autoinstall?
+  # (yes|no)" confirmation that blocks indefinitely. Rather than race GRUB
+  # timing to inject the kernel arg, we answer "yes". The answers start early
+  # and repeat every 30s for two reasons: KubeVirt drops an idle VNC
+  # connection after ~2 min (so we must keep sending keystrokes), and the
+  # exact time subiquity reaches the prompt varies. The burst ends well before
+  # the install completes and reboots, which would drop VNC mid-type.
   boot_command = [
-    "<wait>c<wait>",
-    "linux /casper/vmlinuz autoinstall ds=nocloud ---<enter>",
-    "initrd /casper/initrd<enter>",
-    "boot<enter>"
+    "<wait30>yes<enter>", "<wait30>yes<enter>", "<wait30>yes<enter>",
+    "<wait30>yes<enter>", "<wait30>yes<enter>", "<wait30>yes<enter>"
   ]
-  boot_wait                 = "10s"
+  boot_wait                 = "5s"
   installation_wait_timeout = "20m"
 
   communicator = "ssh"
   ssh_username = "%s"
   ssh_password = "%s"
-  ssh_timeout  = "20m"
+  ssh_timeout  = "1h"
 }
 
 build {
@@ -221,16 +221,25 @@ source "kubevirt-iso" "windows" {
     EOF
   }
 
+  # Windows' "Press any key to boot from CD..." prompt appears only ~3-6s into
+  # OVMF's boot and is gone before a single late keypress can land, so OVMF
+  # drops into its firmware menu. Start tapping space very early (low boot_wait)
+  # and densely (every 500ms) so a keypress lands inside that brief window.
   boot_command = [
-    "<spacebar><wait>"
+    "<spacebar><wait500ms><spacebar><wait500ms><spacebar><wait500ms><spacebar><wait500ms><spacebar><wait500ms>",
+    "<spacebar><wait500ms><spacebar><wait500ms><spacebar><wait500ms><spacebar><wait500ms><spacebar><wait500ms>",
+    "<spacebar><wait500ms><spacebar><wait500ms><spacebar><wait500ms><spacebar><wait500ms><spacebar><wait500ms>",
+    "<spacebar><wait500ms><spacebar><wait500ms><spacebar><wait500ms><spacebar><wait500ms><spacebar><wait500ms>",
+    "<spacebar><wait500ms><spacebar><wait500ms><spacebar><wait500ms><spacebar><wait500ms><spacebar><wait500ms>",
+    "<spacebar><wait500ms><spacebar><wait500ms><spacebar><wait500ms><spacebar><wait500ms><spacebar><wait500ms>"
   ]
-  boot_wait                 = "5s"
-  installation_wait_timeout = "20m"
+  boot_wait                 = "1s"
+  installation_wait_timeout = "40m"
 
   communicator   = "winrm"
   winrm_username = "%s"
   winrm_password = "%s"
-  winrm_timeout  = "25m"
+  winrm_timeout  = "1h"
 }
 
 build {
